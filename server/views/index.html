@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>Teams | Stretchly Team</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="description" content="" />
+</head>
+<body>
+  <h1>Stretchly Team server</h1>
+  <h2>👫 Teams currently online 👫</h2>
+  <ul>
+    {{#teams}}
+    <li><a href="/team/{{name}}">{{name}}</a></li>
+    {{/teams}}
+    {{^teams}}🪦 No teams online 🪦{{/teams}}
+  </ul>
+</body>
+</html>

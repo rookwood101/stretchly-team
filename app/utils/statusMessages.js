@@ -14,6 +14,7 @@ class StatusMessages {
 
   get trayMessage () {
     let message = ''
+    // if team mode
     if (this.reference === 'finishMicrobreak' || this.reference === 'finishBreak') {
       return message
     }

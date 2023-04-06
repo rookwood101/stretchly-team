@@ -49,7 +49,12 @@
       "monitorIdleTime": "Monitor system idle time (breaks are paused if system is idle).",
       "monitorDnd": "Show breaks even in Do Not Disturb mode",
       "language": "Select language:",
-      "restoreDefaults": "Restore defaults"
+      "restoreDefaults": "Restore defaults",
+      "teamServerUrl": "Stretchly Team Server URL:",
+      "teamName": "Stretchly Team Team Name:",
+      "teamPassword": "Stretchly Team Team Password (cannot be changed once set for team):",
+      "setTeamButton": "Set/Create Team",
+      "enableStretchlyTeam": "Enable Stretchly Team (disables built-in breaks)"
     },
     "schedule": {
       "miniBreaks": "Mini Breaks:",
@@ -328,6 +333,30 @@
     },
     "abl": {
       "text": "Stand tall with your arms raised along your shoulders. Move hands slightly behind your back, hold for a second and return."
+    },
+    "abm": {
+      "text": "Blink rapidly for a few seconds to refresh the tear film and clear dust from the eye surface."
+    },
+    "abn": {
+      "text": "Extend your arms with the palms facing towards you, then slowly rotate the hands four times clockwise, then four times counter-clockwise."
+    },
+    "abo": {
+      "text": "Join your hands behind your head, then lift them together up above your head ending with your palms facing upward."
+    },
+    "abp": {
+      "text": "Write a quick poem, take a picture or do a small drawing."
+    },
+    "abq": {
+      "text": "Tidy up one item on your desk."
+    },
+    "abr": {
+      "text": "Hold one finger close to the eye and focus on it. Slowly move the finger away, focus far into the distance and then back to the finger. Bring the finger back and focus on something far away."
+    },
+    "abs": {
+      "text": "While seated, brace elbows on the desk and close to the desk edge. Let your weight fall forward and cup hands over eyes. Close your eyes and inhale slowly through nose and hold for few seconds. Continue deep breathing."
+    },
+    "abt": {
+      "text": "Squeeze a pair of balled-up socks or a soft rubber ball, hold for 5 seconds. Repeat whole process few times."
     }
   },
   "longBreakIdeas": {
@@ -349,7 +378,7 @@
     },
     "aae": {
       "title": "Blink",
-      "text": "Looking at screens for a long time causes you to blink less, thus exposing your eyes to the air. Blink rapidly for a few seconds to refresh the tear film and clear dust from the eye surface."
+      "text": "Looking at screens for a long time causes you to blink less, thus exposing your eyes to the air more, causing them to dry out."
     },
     "aaf": {
       "title": "Ergonomics",
@@ -407,33 +436,25 @@
       "title": "Repeat",
       "text": "Have you found your stretch-ly-routine? Do not forget to repeat it for more than once to better fight effects of prolonged sitting."
     },
-    "aat": {
-      "title": "Wrist and forearm",
-      "text": "Extend your arms with the palms facing towards you, then slowly rotate the hands four times clockwise, then four times counter-clockwise."
-    },
-    "aau": {
-      "title": "Back stretching",
-      "text": "Join your hands behind your head, then lift them together up above your head ending with your palms facing upward."
-    },
     "aav": {
       "title": "Mobilize",
       "text": "For every thirty minutes of stagnation, you should have at least one minute of stimulation."
     },
     "aaw": {
       "title": "7 Minute Workout",
-      "text": "This workout packs in a full-body exercise routine in a fraction of the time. But as with any exercise, be careful. There are numerous apps to get you started."
+      "text": "A 7 minute workout packs in a full-body exercise routine in a fraction of the time. But as with any exercise, be careful. There are numerous apps to get you started."
     },
     "aax": {
       "title": "Pulse",
       "text": " Raise your pulse rate to 120 beats per minute for 20 straight minutes four or five times a week doing anything you enjoy. Regularly raising your heart rate results in improved cardiovascular health."
     },
     "aay": {
-      "title": "Take the stairs ",
+      "title": "Take the stairs",
       "text": "Studies have shown that stair climbing, which is considered vigorous-intensity physical activity, burns more calories per minute than jogging."
     },
     "aaz": {
       "title": "Make art",
-      "text": "Art therapy is known to have great mental health benefits, especially when it comes to stress management. How about writing a quick poem, taking a picture or painting something small?"
+      "text": "Art therapy is known to have great mental health benefits, especially when it comes to stress management."
     },
     "aba": {
       "title": "Declutter",
@@ -451,21 +472,13 @@
       "title": "Yawning",
       "text": "Yawning can be really helpful, as it produces tears to help moisten and lubricate the eyes."
     },
-    "abe": {
-      "title": "Focus change",
-      "text": "Hold one finger close to the eye and focus on it. Slowly move the finger away, focus far into the distance and then back to the finger. Bring the finger back and focus on something far away."
-    },
-    "abf": {
-      "title": "Palming",
-      "text": "While seated, brace elbows on the desk and close to the desk edge. Let your weight fall forward and cup hands over eyes. Close your eyes and inhale slowly through nose and hold for few seconds. Continue deep breathing."
-    },
-    "abg": {
-      "title": "Hand squeezes",
-      "text": "Squeeze a pair of balled-up socks or a soft rubber ball, hold for 5 seconds. Repeat whole process few times."
-    },
     "abh": {
       "title": "Slow Breathing",
       "text": "Emerging research suggests potential for use of controlled slow breathing techniques as a means of optimising physiological parameters that appear to be associated with health and longevity."
+    },
+    "abi": {
+      "title": "Bananas",
+      "text": "Bananas, despite being high in carbohydates, do not cause major spikes in blood sugar levels in healthy individuals."
     }
   }
 }

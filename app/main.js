@@ -1,6 +1,13 @@
 const {
-  app, nativeTheme, BrowserWindow, Menu, ipcMain,
-  shell, dialog, globalShortcut, Tray
+  app,
+  nativeTheme,
+  BrowserWindow,
+  Menu,
+  ipcMain,
+  shell,
+  dialog,
+  globalShortcut,
+  Tray
 } = require('electron')
 
 const path = require('path')
@@ -8,13 +15,16 @@ const i18next = require('i18next')
 const Backend = require('i18next-fs-backend')
 const log = require('electron-log')
 const Store = require('electron-store')
+const os = require('os')
+const WebSocket = require('ws')
 
 process.on('uncaughtException', (err, _) => {
   log.error(err)
   const dialogOpts = {
     type: 'error',
     title: 'Stretchly',
-    message: 'An error occured while running Stretchly and it will now quit. To report the issue, click Report.',
+    message:
+      'An error occured while running Stretchly and it will now quit. To report the issue, click Report.',
     buttons: ['Report', 'OK']
   }
   dialog.showMessageBox(dialogOpts).then((returnValue) => {
@@ -44,8 +54,8 @@ let breakIdeas
 let breakPlanner
 let appIcon = null
 let processWin = null
-let microbreakWins = null
-let breakWins = null
+let microbreakWins = []
+let breakWins = []
 let preferencesWin = null
 let welcomeWin = null
 let contributorPreferencesWindow = null
@@ -56,6 +66,10 @@ let pausedForSuspendOrLock = false
 let nextIdea = null
 let appIsQuitting = false
 let updateChecker
+let socket
+let socketState = 'offline'
+let frontendConnections = []
+const username = fixUsername(os.userInfo().username)
 
 require('@electron/remote/main').initialize()
 
@@ -66,8 +80,7 @@ global.shared = {
   isContributor: false
 }
 
-const commandLineArguments = process.argv
-  .slice(app.isPackaged ? 1 : 2)
+const commandLineArguments = process.argv.slice(app.isPackaged ? 1 : 2)
 
 const gotTheLock = app.requestSingleInstanceLock(commandLineArguments)
 
@@ -76,73 +89,95 @@ if (!gotTheLock) {
   cmd.runOrForward()
   app.quit()
 } else {
-  app.on('second-instance', (event, commandLine, workingDirectory, commandLineArguments) => {
-    log.info(`Stretchly: arguments received from second instance: ${commandLineArguments}`)
-    const cmd = new Command(commandLineArguments, app.getVersion())
+  app.on(
+    'second-instance',
+    (event, commandLine, workingDirectory, commandLineArguments) => {
+      log.info(
+        `Stretchly: arguments received from second instance: ${commandLineArguments}`
+      )
+      const cmd = new Command(commandLineArguments, app.getVersion())
 
-    if (!cmd.hasSupportedCommand) {
-      return
-    }
-
-    if (!cmd.checkInMain()) {
-      log.info(`Stretchly: command '${cmd.command}' executed in second instance, dropped in main instance`)
-      return
-    }
-
-    switch (cmd.command) {
-      case 'reset':
-        log.info('Stretchly: resetting breaks (requested by second instance)')
-        resetBreaks()
-        break
-
-      case 'mini': {
-        log.info('Stretchly: skip to Mini Break (requested by second instance)')
-        const delay = cmd.waitToMs()
-        if (delay === -1) {
-          log.error('Stretchly: error parsing wait interval to ms because of invalid value')
-          return
-        }
-        if (cmd.options.title) nextIdea = [cmd.options.title]
-        if (!cmd.options.noskip || delay) skipToMicrobreak(delay)
-        break
+      if (!cmd.hasSupportedCommand) {
+        return
       }
 
-      case 'long': {
-        log.info('Stretchly: skip to Long Break (requested by second instance)')
-        const delay = cmd.waitToMs()
-        if (delay === -1) {
-          log.error('Stretchly: error parsing wait interval to ms because of invalid value')
-          return
-        }
-        nextIdea = [cmd.options.title ? cmd.options.title : null, cmd.options.text ? cmd.options.text : null]
-        if (!cmd.options.noskip || delay) skipToBreak(delay)
-        break
+      if (!cmd.checkInMain()) {
+        log.info(
+          `Stretchly: command '${cmd.command}' executed in second instance, dropped in main instance`
+        )
+        return
       }
 
-      case 'resume':
-        log.info('Stretchly: resume Breaks (requested by second instance)')
-        if (breakPlanner.isPaused) resumeBreaks(false)
-        break
+      switch (cmd.command) {
+        case 'reset':
+          log.info(
+            'Stretchly: resetting breaks (requested by second instance)'
+          )
+          resetBreaks()
+          break
 
-      case 'toggle':
-        log.info('Stretchly: toggle Breaks (requested by second instance)')
-        if (breakPlanner.isPaused) resumeBreaks(false)
-        else pauseBreaks(1)
-        break
-
-      case 'pause': {
-        log.info('Stretchly: pause Breaks (requested by second instance)')
-        const duration = cmd.durationToMs(settings)
-        // -1 indicates an invalid value
-        if (duration === -1) {
-          log.error('Stretchly: error when parsing duration to ms because of invalid value')
-          return
+        case 'mini': {
+          log.info(
+            'Stretchly: skip to Mini Break (requested by second instance)'
+          )
+          const delay = cmd.waitToMs()
+          if (delay === -1) {
+            log.error(
+              'Stretchly: error parsing wait interval to ms because of invalid value'
+            )
+            return
+          }
+          if (cmd.options.title) nextIdea = [cmd.options.title]
+          if (!cmd.options.noskip || delay) skipToMicrobreak(delay)
+          break
         }
-        pauseBreaks(duration)
-        break
+
+        case 'long': {
+          log.info(
+            'Stretchly: skip to Long Break (requested by second instance)'
+          )
+          const delay = cmd.waitToMs()
+          if (delay === -1) {
+            log.error(
+              'Stretchly: error parsing wait interval to ms because of invalid value'
+            )
+            return
+          }
+          nextIdea = [
+            cmd.options.title ? cmd.options.title : null,
+            cmd.options.text ? cmd.options.text : null
+          ]
+          if (!cmd.options.noskip || delay) skipToBreak(delay)
+          break
+        }
+
+        case 'resume':
+          log.info('Stretchly: resume Breaks (requested by second instance)')
+          if (breakPlanner.isPaused) resumeBreaks(false)
+          break
+
+        case 'toggle':
+          log.info('Stretchly: toggle Breaks (requested by second instance)')
+          if (breakPlanner.isPaused) resumeBreaks(false)
+          else pauseBreaks(1)
+          break
+
+        case 'pause': {
+          log.info('Stretchly: pause Breaks (requested by second instance)')
+          const duration = cmd.durationToMs(settings)
+          // -1 indicates an invalid value
+          if (duration === -1) {
+            log.error(
+              'Stretchly: error when parsing duration to ms because of invalid value'
+            )
+            return
+          }
+          pauseBreaks(duration)
+          break
+        }
       }
     }
-  })
+  )
 }
 
 app.on('ready', initialize)
@@ -154,6 +189,169 @@ app.on('before-quit', () => {
   globalShortcut.unregisterAll()
 })
 
+function fixUsername (str) {
+  // alex.sadler => Alex Sadler
+  return str
+    .toLowerCase()
+    .replace(/(^[a-z]|[.][a-z])/g, (group) =>
+      group.toUpperCase().replace('.', ' ')
+    )
+}
+
+function connectToTeamServer () {
+  const url = 'ws://' + settings.get('teamServerUrl')
+  log.info(`Connecting to stretchly team server @ ${url}`)
+  socket = new WebSocket(url, undefined, {
+    headers: {
+      'Stretchly-Team': settings.get('teamName'),
+      'Stretchly-Team-Password': settings.get('teamPassword')
+    }
+  })
+  settings.onDidChange('teamServerUrl', () => {
+    log.info(
+      'Stretchly team server URL changed. Closing connection to old server.'
+    )
+    socket.close()
+  })
+  settings.onDidChange('teamName', () => {
+    log.info('Stretchly team name changed. Closing connection to old team.')
+    socket.close()
+  })
+  settings.onDidChange('teamPassword', () => {
+    log.info(
+      'Stretchly team password changed. Closing connection to old team.'
+    )
+    socket.close()
+  })
+  settings.onDidChange('enableStretchlyTeam', () => {
+    if (!settings.get('enableStretchlyTeam')) {
+      // disable stretchly team
+      log.info(
+        'Stretchly team server URL changed. Closing connection to old server.'
+      )
+      socket.close()
+    }
+  })
+  let keepAliveInterval = null
+  socket.addEventListener('error', function () {})
+  socket.addEventListener('open', function (event) {
+    socket.send(
+      JSON.stringify({
+        eventType: 'clientReady',
+        username
+      })
+    )
+    keepAliveInterval = setInterval(() => {
+      log.info('Sending keep alive to team server')
+      socket.send(
+        JSON.stringify({
+          eventType: 'keepAlivePing'
+        })
+      )
+    }, 60000)
+    socketState = 'clientReady'
+  })
+  socket.addEventListener('message', function (event) {
+    const message = JSON.parse(event.data)
+    log.info(message)
+    switch (socketState) {
+      case 'clientReady':
+        switch (message.eventType) {
+          case 'serverReady':
+            log.info('Connection established to stretchly-team-server')
+            socketState = 'serverReady'
+            break
+          default:
+            log.error(`Unexpected message ${event.data}`)
+        }
+        break
+      case 'serverReady':
+        switch (message.eventType) {
+          case 'poke':
+            try {
+              for (const connection of frontendConnections) {
+                connection.send('poke', message)
+              }
+            } catch (error) {
+              log.error('failed to send poke to frontend.')
+            }
+            break
+          case 'minibreak':
+            startMicrobreak(
+              message.ideaKey,
+              message.ideaText,
+              message.adviceKey,
+              message.adviceText,
+              message.duration,
+              message.breakBuddies
+            )
+            setTimeout(() => finishMicrobreak(true), message.duration) // TODO: find out if we should play sound
+            break
+          case 'connectionTestPing':
+            break
+          default:
+            log.error(`Unexpected message ${event.data}`)
+        }
+        break
+      default:
+        throw Error(`Unexpected socket state ${socketState}`)
+    }
+  })
+  socket.addEventListener('close', function (event) {
+    log.info('Connection to stretchly-team-server closed.')
+    clearInterval(keepAliveInterval)
+    socketState = 'offline'
+    if (settings.get('enableStretchlyTeam')) {
+      setTimeout(connectToTeamServer, 1000)
+    }
+  })
+}
+
+function initBreakPlanner () {
+  breakPlanner = new BreaksPlanner(settings)
+  breakPlanner.nextBreak()
+  breakPlanner.on('startMicrobreakNotification', () => {
+    startMicrobreakNotification()
+  })
+  breakPlanner.on('startBreakNotification', () => {
+    startBreakNotification()
+  })
+  breakPlanner.on('startMicrobreak', () => {
+    startMicrobreak()
+  })
+  breakPlanner.on('finishMicrobreak', (shouldPlaySound) => {
+    finishMicrobreak(shouldPlaySound)
+  })
+  breakPlanner.on('startBreak', () => {
+    startBreak()
+  })
+  breakPlanner.on('finishBreak', (shouldPlaySound) => {
+    finishBreak(shouldPlaySound)
+  })
+  breakPlanner.on('resumeBreaks', () => {
+    resumeBreaks()
+  })
+  breakPlanner.on('updateToolTip', function () {
+    updateTray()
+  })
+}
+
+function initFakeBreakPlanner () {
+  const backingBreakPlanner = new BreaksPlanner(settings)
+  backingBreakPlanner.isPaused = true
+  breakPlanner = new Proxy(backingBreakPlanner, {
+    get: function (target, prop) {
+      if (target[prop] === undefined) {
+        return undefined
+      } else {
+        return function () {
+          /* do nothing */
+        }
+      }
+    }
+  })
+}
+
 function initialize (isAppStart = true) {
   if (!gotTheLock) {
     return
@@ -162,35 +360,47 @@ function initialize (isAppStart = true) {
   log.info(`Stretchly: ${isAppStart ? '' : 're'}initializing...`)
   require('events').defaultMaxListeners = 200 // for watching Store changes
   if (!settings) {
-    settings = new Store({ defaults: require('./utils/defaultSettings'), watch: true })
+    settings = new Store({
+      defaults: require('./utils/defaultSettings'),
+      watch: true
+    })
     log.info('Stretchly: loading preferences')
     Store.initRenderer()
     Object.entries(settings.store).forEach(([key, _]) => {
       settings.onDidChange(key, (newValue, oldValue) => {
-        log.info(`Stretchly: setting '${key}' to '${newValue}' (was '${oldValue}')`)
+        log.info(
+          `Stretchly: setting '${key}' to '${newValue}' (was '${oldValue}')`
+        )
       })
     })
   }
+  if (settings.get('enableStretchlyTeam')) {
+    connectToTeamServer()
+  }
+
   if (!breakPlanner) {
-    breakPlanner = new BreaksPlanner(settings)
-    breakPlanner.nextBreak()
-    breakPlanner.on('startMicrobreakNotification', () => { startMicrobreakNotification() })
-    breakPlanner.on('startBreakNotification', () => { startBreakNotification() })
-    breakPlanner.on('startMicrobreak', () => { startMicrobreak() })
-    breakPlanner.on('finishMicrobreak', (shouldPlaySound) => { finishMicrobreak(shouldPlaySound) })
-    breakPlanner.on('startBreak', () => { startBreak() })
-    breakPlanner.on('finishBreak', (shouldPlaySound) => { finishBreak(shouldPlaySound) })
-    breakPlanner.on('resumeBreaks', () => { resumeBreaks() })
-    breakPlanner.on('updateToolTip', function () {
-      updateTray()
-    })
+    if (!settings.get('enableStretchlyTeam')) {
+      initBreakPlanner()
+    } else {
+      initFakeBreakPlanner()
+    }
   } else {
+    // this happens if a setting changes
     breakPlanner.clear()
     breakPlanner.appExclusionsManager.reinitialize(settings)
     breakPlanner.doNotDisturb(settings.get('monitorDnd'))
     breakPlanner.naturalBreaks(settings.get('naturalBreaks'))
     breakPlanner.nextBreak()
   }
+  settings.onDidChange('enableStretchlyTeam', () => {
+    if (settings.get('enableStretchlyTeam')) {
+      breakPlanner.pause(1) // magic number meaning forever
+      connectToTeamServer()
+      initFakeBreakPlanner()
+    } else {
+      initBreakPlanner()
+    }
+  })
   if (!appIcon) {
     if (process.platform === 'darwin') {
       app.dock.hide()
@@ -203,20 +413,24 @@ function initialize (isAppStart = true) {
   createWelcomeWindow()
   nativeTheme.themeSource = settings.get('themeSource')
 
-  require('fs').readFile(path.join(app.getPath('userData'), 'stamp'), 'utf8', (err, data) => {
-    if (err) {
-      return
-    }
-    const { DateTime } = require('luxon')
-    if (DateTime.fromISO(data).month === DateTime.now().month) {
-      global.shared.isContributor = true
-      log.info('Stretchly: Thanks for your contributions!')
-      if (preferencesWin) {
-        preferencesWin.send('enableContributorPreferences')
+  require('fs').readFile(
+    path.join(app.getPath('userData'), 'stamp'),
+    'utf8',
+    (err, data) => {
+      if (err) {
+        return
       }
-      updateTray()
+      const { DateTime } = require('luxon')
+      if (DateTime.fromISO(data).month === DateTime.now().month) {
+        global.shared.isContributor = true
+        log.info('Stretchly: Thanks for your contributions!')
+        if (preferencesWin) {
+          preferencesWin.send('enableContributorPreferences')
+        }
+        updateTray()
+      }
     }
-  })
+  )
   startPowerMonitoring()
   if (preferencesWin) {
     preferencesWin.send('renderSettings', settingsToSend())
@@ -229,34 +443,62 @@ function initialize (isAppStart = true) {
   }
   globalShortcut.unregisterAll()
   if (settings.get('resumeBreaksShortcut') !== '') {
-    const resumeBreaksShortcut = globalShortcut.register(settings.get('resumeBreaksShortcut'), () => {
-      resumeBreaks(false)
-    })
+    const resumeBreaksShortcut = globalShortcut.register(
+      settings.get('resumeBreaksShortcut'),
+      () => {
+        resumeBreaks(false)
+      }
+    )
 
     if (!resumeBreaksShortcut) {
       log.warn('Stretchly: resumeBreaksShortcut registration failed')
     } else {
-      log.info(`Stretchly: resumeBreaksShortcut registration successful (${settings.get('resumeBreaksShortcut')})`)
+      log.info(
+        `Stretchly: resumeBreaksShortcut registration successful (${settings.get(
+          'resumeBreaksShortcut'
+        )})`
+      )
     }
   }
   if (settings.get('pauseBreaksShortcut') !== '') {
-    const pauseBreaksShortcut = globalShortcut.register(settings.get('pauseBreaksShortcut'), () => {
-      pauseBreaks(1)
-    })
+    const pauseBreaksShortcut = globalShortcut.register(
+      settings.get('pauseBreaksShortcut'),
+      () => {
+        pauseBreaks(1)
+      }
+    )
 
     if (!pauseBreaksShortcut) {
       log.warn('Stretchly: pauseBreaksShortcut registration failed')
     } else {
-      log.info(`Stretchly: pauseBreaksShortcut registration successful (${settings.get('pauseBreaksShortcut')})`)
+      log.info(
+        `Stretchly: pauseBreaksShortcut registration successful (${settings.get(
+          'pauseBreaksShortcut'
+        )})`
+      )
     }
   }
   loadIdeas()
+
+  ipcMain.on('pokeBuddy', (event, pokedBuddy) => {
+    console.log('sending poke to server')
+    if (
+      settings.get('enableStretchlyTeam') &&
+      socket.readyState === WebSocket.OPEN
+    ) {
+      socket.send(
+        JSON.stringify({
+          eventType: 'poke',
+          pokedBuddy
+        })
+      )
+    }
+  })
 }
 
 function startI18next () {
-  i18next
-    .use(Backend)
-    .init({
+  i18next.use(Backend).init(
+    {
       lng: settings.get('language'),
       fallbackLng: 'en',
       debug: !app.isPackaged,
@@ -264,7 +506,8 @@ function startI18next () {
         loadPath: path.join(__dirname, '/locales/{{lng}}.json'),
         jsonIndent: 2
       }
-    }, function (err, t) {
+    },
+    function (err, t) {
       if (err) {
         console.log(err.stack)
       }
@@ -272,7 +515,8 @@ function startI18next () {
         updateTray()
         setInterval(updateTray, 10000)
       }
-    })
+    }
+  )
 }
 
 i18next.on('languageChanged', function (lng) {
@@ -285,10 +529,15 @@ i18next.on('languageChanged', function (lng) {
 function onSuspendOrLock () {
   log.info('System: suspend or lock')
   if (settings.get('pauseForSuspendOrLock')) {
-    if (breakPlanner.isPaused || breakPlanner.dndManager.isOnDnd ||
+    if (
+      breakPlanner.isPaused ||
+      breakPlanner.dndManager.isOnDnd ||
       breakPlanner.naturalBreaksManager.isSchedulerCleared ||
-      breakPlanner.appExclusionsManager.isSchedulerCleared) {
-      log.info('Stretchly: not pausing for suspendOrLock because paused already')
+      breakPlanner.appExclusionsManager.isSchedulerCleared
+    ) {
+      log.info(
+        'Stretchly: not pausing for suspendOrLock because paused already'
+      )
     } else {
       pausedForSuspendOrLock = true
       pauseBreaks(1)
@@ -331,7 +580,7 @@ function closeWindows (windowArray) {
     }
     window.close()
   }
-  return null
+  return []
 }
 
 function displaysX (displayID = -1, width = 800, fullscreen = false) {
@@ -342,17 +591,23 @@ function displaysX (displayID = -1, width = 800, fullscreen = false) {
     if (settings.get('screen') === 'primary') {
       theScreen = electron.screen.getPrimaryDisplay()
     } else if (settings.get('screen') === 'cursor') {
-      theScreen = electron.screen.getDisplayNearestPoint(electron.screen.getCursorScreenPoint())
+      theScreen = electron.screen.getDisplayNearestPoint(
+        electron.screen.getCursorScreenPoint()
+      )
     } else {
       displayID = parseInt(settings.get('screen'))
     }
   }
 
   if (displayID === -1) {
-    theScreen = electron.screen.getDisplayNearestPoint(electron.screen.getCursorScreenPoint())
+    theScreen = electron.screen.getDisplayNearestPoint(
+      electron.screen.getCursorScreenPoint()
+    )
   } else if (displayID >= numberOfDisplays() || displayID < 0) {
     log.warn(`Stretchly: invalid displayID ${displayID} to displaysX`)
-    theScreen = electron.screen.getDisplayNearestPoint(electron.screen.getCursorScreenPoint())
+    theScreen = electron.screen.getDisplayNearestPoint(
+      electron.screen.getCursorScreenPoint()
+    )
   } else {
     const screens = electron.screen.getAllDisplays()
     theScreen = screens[displayID]
@@ -361,7 +616,7 @@ function displaysX (displayID = -1, width = 800, fullscreen = false) {
   if (fullscreen) {
     return Math.ceil(bounds.x)
   } else {
-    return Math.ceil(bounds.x + ((bounds.width - width) / 2))
+    return Math.ceil(bounds.x + (bounds.width - width) / 2)
   }
 }
 
@@ -373,17 +628,23 @@ function displaysY (displayID = -1, height = 600, fullscreen = false) {
     if (settings.get('screen') === 'primary') {
       theScreen = electron.screen.getPrimaryDisplay()
     } else if (settings.get('screen') === 'cursor') {
-      theScreen = electron.screen.getDisplayNearestPoint(electron.screen.getCursorScreenPoint())
+      theScreen = electron.screen.getDisplayNearestPoint(
+        electron.screen.getCursorScreenPoint()
+      )
     } else {
       displayID = parseInt(settings.get('screen'))
     }
   }
 
   if (displayID === -1) {
-    theScreen = electron.screen.getDisplayNearestPoint(electron.screen.getCursorScreenPoint())
+    theScreen = electron.screen.getDisplayNearestPoint(
+      electron.screen.getCursorScreenPoint()
+    )
   } else if (displayID >= numberOfDisplays() || displayID < 0) {
     log.warn(`Stretchly: invalid displayID ${displayID} to displaysY`)
-    theScreen = electron.screen.getDisplayNearestPoint(electron.screen.getCursorScreenPoint())
+    theScreen = electron.screen.getDisplayNearestPoint(
+      electron.screen.getCursorScreenPoint()
+    )
   } else {
     const screens = electron.screen.getAllDisplays()
     theScreen = screens[displayID]
@@ -392,7 +653,7 @@ function displaysY (displayID = -1, height = 600, fullscreen = false) {
   if (fullscreen) {
     return Math.ceil(bounds.y)
   } else {
-    return Math.ceil(bounds.y + ((bounds.height - height) / 2))
+    return Math.ceil(bounds.y + (bounds.height - height) / 2)
   }
 }
 
@@ -404,17 +665,23 @@ function displaysWidth (displayID = -1) {
     if (settings.get('screen') === 'primary') {
       theScreen = electron.screen.getPrimaryDisplay()
     } else if (settings.get('screen') === 'cursor') {
-      theScreen = electron.screen.getDisplayNearestPoint(electron.screen.getCursorScreenPoint())
+      theScreen = electron.screen.getDisplayNearestPoint(
+        electron.screen.getCursorScreenPoint()
+      )
     } else {
       displayID = parseInt(settings.get('screen'))
     }
   }
 
   if (displayID === -1) {
-    theScreen = electron.screen.getDisplayNearestPoint(electron.screen.getCursorScreenPoint())
+    theScreen = electron.screen.getDisplayNearestPoint(
+      electron.screen.getCursorScreenPoint()
+    )
   } else if (displayID >= numberOfDisplays() || displayID < 0) {
     log.warn(`Stretchly: invalid displayID ${displayID} to displaysWidth`)
-    theScreen = electron.screen.getDisplayNearestPoint(electron.screen.getCursorScreenPoint())
+    theScreen = electron.screen.getDisplayNearestPoint(
+      electron.screen.getCursorScreenPoint()
+    )
   } else {
     const screens = electron.screen.getAllDisplays()
     theScreen = screens[displayID]
@@ -431,17 +698,23 @@ function displaysHeight (displayID = -1) {
     if (settings.get('screen') === 'primary') {
       theScreen = electron.screen.getPrimaryDisplay()
     } else if (settings.get('screen') === 'cursor') {
-      theScreen = electron.screen.getDisplayNearestPoint(electron.screen.getCursorScreenPoint())
+      theScreen = electron.screen.getDisplayNearestPoint(
+        electron.screen.getCursorScreenPoint()
+      )
     } else {
       displayID = parseInt(settings.get('screen'))
     }
   }
 
   if (displayID === -1) {
-    theScreen = electron.screen.getDisplayNearestPoint(electron.screen.getCursorScreenPoint())
+    theScreen = electron.screen.getDisplayNearestPoint(
+      electron.screen.getCursorScreenPoint()
+    )
   } else if (displayID >= numberOfDisplays() || displayID < 0) {
     log.warn(`Stretchly: invalid displayID ${displayID} to displaysHeight`)
-    theScreen = electron.screen.getDisplayNearestPoint(electron.screen.getCursorScreenPoint())
+    theScreen = electron.screen.getDisplayNearestPoint(
+      electron.screen.getCursorScreenPoint()
+    )
   } else {
     const screens = electron.screen.getAllDisplays()
     theScreen = screens[displayID]
@@ -466,7 +739,11 @@ function trayIconPath () {
     reference: breakPlanner.scheduler.reference
   }
   const trayIconFileName = new AppIcon(params).trayIconFileName
-  const pathToTrayIcon = path.join(__dirname, '/images/app-icons/', trayIconFileName)
+  const pathToTrayIcon = path.join(
+    __dirname,
+    '/images/app-icons/',
+    trayIconFileName
+  )
   return pathToTrayIcon
 }
 
@@ -540,7 +817,11 @@ function createContributorSettingsWindow () {
     contributorPreferencesWindow.show()
     return
   }
-  const modalPath = path.join('file://', __dirname, '/contributor-preferences.html')
+  const modalPath = path.join(
+    'file://',
+    __dirname,
+    '/contributor-preferences.html'
+  )
   contributorPreferencesWindow = new BrowserWindow({
     x: displaysX(-1, 735),
     y: displaysY(),
@@ -553,7 +834,9 @@ function createContributorSettingsWindow () {
       enableRemoteModule: true
     }
   })
-  require('@electron/remote/main').enable(contributorPreferencesWindow.webContents)
+  require('@electron/remote/main').enable(
+    contributorPreferencesWindow.webContents
+  )
   contributorPreferencesWindow.loadURL(modalPath)
   if (contributorPreferencesWindow) {
     contributorPreferencesWindow.on('closed', () => {
@@ -618,48 +901,94 @@ function checkVersion () {
 }
 
 function startMicrobreakNotification () {
-  showNotification(i18next.t('main.microbreakIn', { seconds: settings.get('microbreakNotificationInterval') / 1000 }))
+  showNotification(
+    i18next.t('main.microbreakIn', {
+      seconds: settings.get('microbreakNotificationInterval') / 1000
+    })
+  )
   log.info('Stretchly: showing Mini Break notification')
   breakPlanner.nextBreakAfterNotification()
   updateTray()
 }
 
 function startBreakNotification () {
-  showNotification(i18next.t('main.breakIn', { seconds: settings.get('breakNotificationInterval') / 1000 }))
+  showNotification(
+    i18next.t('main.breakIn', {
+      seconds: settings.get('breakNotificationInterval') / 1000
+    })
+  )
   log.info('Stretchly: showing Long Break notification')
   breakPlanner.nextBreakAfterNotification()
   updateTray()
 }
 
-function startMicrobreak () {
+function startMicrobreak (
+  ideaKey,
+  ideaText,
+  adviceKey,
+  adviceText,
+  duration,
+  breakBuddies = []
+) {
   // don't start another break if break running
-  if (microbreakWins) {
+  if (microbreakWins.length > 0) {
     log.warn('Stretchly: Mini Break already running, not starting Mini Break')
     return
   }
 
-  const breakDuration = settings.get('microbreakDuration')
+  const breakDuration = duration || settings.get('microbreakDuration')
   const strictMode = settings.get('microbreakStrictMode')
   const postponesLimit = settings.get('microbreakPostponesLimit')
-  const postponableDurationPercent = settings.get('microbreakPostponableDurationPercent')
-  const postponable = settings.get('microbreakPostpone') &&
-    breakPlanner.postponesNumber < postponesLimit && postponesLimit > 0
+  const postponableDurationPercent = settings.get(
+    'microbreakPostponableDurationPercent'
+  )
+  const postponable =
+    settings.get('microbreakPostpone') &&
+    breakPlanner.postponesNumber < postponesLimit &&
+    postponesLimit > 0
   const showBreaksAsRegularWindows = settings.get('showBreaksAsRegularWindows')
 
   const modalPath = path.join('file://', __dirname, '/microbreak.html')
   microbreakWins = []
 
-  const idea = nextIdea || (settings.get('ideas') ? microbreakIdeas.randomElement : [''])
+  let idea
+  if (ideaKey) {
+    idea = i18next.t([`miniBreakIdeas.${ideaKey}.text`, ideaText])
+  } else {
+    idea =
+      nextIdea ||
+      (settings.get('ideas') ? microbreakIdeas.randomElement : [''])
+  }
   nextIdea = null
 
-  if (settings.get('microbreakStartSoundPlaying') && !settings.get('silentNotifications')) {
-    processWin.webContents.send('playSound', settings.get('audio'), settings.get('volume'))
+  let advice = 'no advice'
+  if (adviceKey) {
+    advice = i18next.t([`longBreakIdeas.${adviceKey}.text`, adviceText])
   }
 
-  for (let localDisplayId = 0; localDisplayId < numberOfDisplays(); localDisplayId++) {
+  if (
+    settings.get('microbreakStartSoundPlaying') &&
+    !settings.get('silentNotifications')
+  ) {
+    processWin.webContents.send(
+      'playSound',
+      settings.get('audio'),
+      settings.get('volume')
+    )
+  }
+  frontendConnections = []
+  for (
+    let localDisplayId = 0;
+    localDisplayId < numberOfDisplays();
+    localDisplayId++
+  ) {
     const windowOptions = {
-      width: Number.parseInt(displaysWidth(localDisplayId) * settings.get('breakWindowWidth')),
-      height: Number.parseInt(displaysHeight(localDisplayId) * settings.get('breakWindowHeight')),
+      width: Number.parseInt(
+        displaysWidth(localDisplayId) * settings.get('breakWindowWidth')
+      ),
+      height: Number.parseInt(
+        displaysHeight(localDisplayId) * settings.get('breakWindowHeight')
+      ),
       autoHideMenuBar: true,
       icon: windowIconPath(),
       resizable: false,
@@ -674,7 +1003,8 @@ function startMicrobreak () {
       title: 'Stretchly',
       webPreferences: {
         preload: path.join(__dirname, './microbreak.js'),
-        enableRemoteModule: true
+        enableRemoteModule: true,
+        nodeIntegration: false
       }
     }
 
@@ -689,33 +1019,67 @@ function startMicrobreak () {
     }
 
     let microbreakWinLocal = new BrowserWindow(windowOptions)
-    // seems to help with multiple-displays problems
     microbreakWinLocal.setSize(windowOptions.width, windowOptions.height)
 
     ipcMain.on('send-microbreak-data', (event) => {
+      frontendConnections.push(event.sender)
       const startTime = Date.now()
       if (!strictMode || postponable) {
         if (settings.get('endBreakShortcut') !== '') {
           globalShortcut.register(settings.get('endBreakShortcut'), () => {
-            const passedPercent = (Date.now() - startTime) / breakDuration * 100
-            if (Utils.canPostpone(postponable, passedPercent, postponableDurationPercent)) {
+            const passedPercent =
+              ((Date.now() - startTime) / breakDuration) * 100
+            if (
+              Utils.canPostpone(
+                postponable,
+                passedPercent,
+                postponableDurationPercent
+              )
+            ) {
               postponeMicrobreak()
-            } else if (Utils.canSkip(strictMode, postponable, passedPercent, postponableDurationPercent)) {
+            } else if (
+              Utils.canSkip(
+                strictMode,
+                postponable,
+                passedPercent,
+                postponableDurationPercent
+              )
+            ) {
               finishMicrobreak(false)
             }
           })
         }
       }
+
       event.sender.send('microbreakIdea', idea)
-      event.sender.send('progress', startTime,
-        breakDuration, strictMode, postponable, postponableDurationPercent, calculateBackgroundColor())
+      if (settings.get('enableStretchlyTeam')) {
+        event.sender.send('enableStretchlyTeam', true)
+        event.sender.send('breakBuddies', breakBuddies)
+        event.sender.send('setUsername', username)
+        event.sender.send('microbreakAdvice', advice)
+      } else {
+        event.sender.send('enableStretchlyTeam', false)
+      }
+      event.sender.send(
+        'progress',
+        startTime,
+        breakDuration,
+        strictMode,
+        postponable,
+        postponableDurationPercent,
+        calculateBackgroundColor()
+      )
 
       if (showBreaksAsRegularWindows) {
         microbreakWinLocal.show()
       } else {
         microbreakWinLocal.showInactive()
       }
-      log.info(`Stretchly: showing window ${localDisplayId + 1} of ${numberOfDisplays()}`)
+      log.info(
+        `Stretchly: showing window ${
+          localDisplayId + 1
+        } of ${numberOfDisplays()}`
+      )
 
       if (process.platform === 'darwin') {
         if (showBreaksAsRegularWindows) {
@@ -738,7 +1102,10 @@ function startMicrobreak () {
     require('@electron/remote/main').enable(microbreakWinLocal.webContents)
     microbreakWinLocal.loadURL(modalPath)
     microbreakWinLocal.setVisibleOnAllWorkspaces(true)
-    microbreakWinLocal.setAlwaysOnTop(!showBreaksAsRegularWindows, 'pop-up-menu')
+    microbreakWinLocal.setAlwaysOnTop(
+      !showBreaksAsRegularWindows,
+      'pop-up-menu'
+    )
     if (microbreakWinLocal) {
       microbreakWinLocal.on('close', (e) => {
         if (settings.get('showBreaksAsRegularWindows')) {
@@ -777,26 +1144,49 @@ function startBreak () {
   const breakDuration = settings.get('breakDuration')
   const strictMode = settings.get('breakStrictMode')
   const postponesLimit = settings.get('breakPostponesLimit')
-  const postponableDurationPercent = settings.get('breakPostponableDurationPercent')
-  const postponable = settings.get('breakPostpone') &&
-    breakPlanner.postponesNumber < postponesLimit && postponesLimit > 0
+  const postponableDurationPercent = settings.get(
+    'breakPostponableDurationPercent'
+  )
+  const postponable =
+    settings.get('breakPostpone') &&
+    breakPlanner.postponesNumber < postponesLimit &&
+    postponesLimit > 0
   const showBreaksAsRegularWindows = settings.get('showBreaksAsRegularWindows')
 
   const modalPath = path.join('file://', __dirname, '/break.html')
   breakWins = []
 
-  const defaultNextIdea = settings.get('ideas') ? breakIdeas.randomElement : ['', '']
-  const idea = nextIdea ? (nextIdea.map((val, index) => val || defaultNextIdea[index])) : defaultNextIdea
+  const defaultNextIdea = settings.get('ideas')
+    ? breakIdeas.randomElement
+    : ['', '']
+  const idea = nextIdea
+    ? nextIdea.map((val, index) => val || defaultNextIdea[index])
+    : defaultNextIdea
   nextIdea = null
 
-  if (settings.get('breakStartSoundPlaying') && !settings.get('silentNotifications')) {
-    processWin.webContents.send('playSound', settings.get('audio'), settings.get('volume'))
+  if (
+    settings.get('breakStartSoundPlaying') &&
+    !settings.get('silentNotifications')
+  ) {
+    processWin.webContents.send(
+      'playSound',
+      settings.get('audio'),
+      settings.get('volume')
+    )
   }
 
-  for (let localDisplayId = 0; localDisplayId < numberOfDisplays(); localDisplayId++) {
+  for (
+    let localDisplayId = 0;
+    localDisplayId < numberOfDisplays();
+    localDisplayId++
+  ) {
     const windowOptions = {
-      width: Number.parseInt(displaysWidth(localDisplayId) * settings.get('breakWindowWidth')),
-      height: Number.parseInt(displaysHeight(localDisplayId) * settings.get('breakWindowHeight')),
+      width: Number.parseInt(
+        displaysWidth(localDisplayId) * settings.get('breakWindowWidth')
+      ),
+      height: Number.parseInt(
+        displaysHeight(localDisplayId) * settings.get('breakWindowHeight')
+      ),
       autoHideMenuBar: true,
       icon: windowIconPath(),
       resizable: false,
@@ -811,7 +1201,8 @@ function startBreak () {
       title: 'Stretchly',
       webPreferences: {
         preload: path.join(__dirname, './break.js'),
-        enableRemoteModule: true
+        enableRemoteModule: true,
+        nodeIntegration: false
       }
     }
 
@@ -834,24 +1225,49 @@ function startBreak () {
       if (!strictMode || postponable) {
         if (settings.get('endBreakShortcut') !== '') {
           globalShortcut.register(settings.get('endBreakShortcut'), () => {
-            const passedPercent = (Date.now() - startTime) / breakDuration * 100
-            if (Utils.canPostpone(postponable, passedPercent, postponableDurationPercent)) {
+            const passedPercent =
+              ((Date.now() - startTime) / breakDuration) * 100
+            if (
+              Utils.canPostpone(
+                postponable,
+                passedPercent,
+                postponableDurationPercent
+              )
+            ) {
               postponeBreak()
-            } else if (Utils.canSkip(strictMode, postponable, passedPercent, postponableDurationPercent)) {
+            } else if (
+              Utils.canSkip(
+                strictMode,
+                postponable,
+                passedPercent,
+                postponableDurationPercent
+              )
+            ) {
               finishBreak(false)
             }
           })
         }
       }
       event.sender.send('breakIdea', idea)
-      event.sender.send('progress', startTime,
-        breakDuration, strictMode, postponable, postponableDurationPercent, calculateBackgroundColor())
+      event.sender.send(
+        'progress',
+        startTime,
+        breakDuration,
+        strictMode,
+        postponable,
+        postponableDurationPercent,
+        calculateBackgroundColor()
+      )
       if (showBreaksAsRegularWindows) {
         breakWinLocal.show()
       } else {
         breakWinLocal.showInactive()
       }
-      log.info(`Stretchly: showing window ${localDisplayId + 1} of ${numberOfDisplays()}`)
+      log.info(
+        `Stretchly: showing window ${
+          localDisplayId + 1
+        } of ${numberOfDisplays()}`
+      )
 
       if (process.platform === 'darwin') {
         if (showBreaksAsRegularWindows) {
@@ -910,7 +1326,11 @@ function breakComplete (shouldPlaySound, windows) {
     globalShortcut.unregister(settings.get('endBreakShortcut'))
   }
   if (shouldPlaySound && !settings.get('silentNotifications')) {
-    processWin.webContents.send('playSound', settings.get('audio'), settings.get('volume'))
+    processWin.webContents.send(
+      'playSound',
+      settings.get('audio'),
+      settings.get('volume')
+    )
   }
   if (process.platform === 'darwin') {
     // get focus on the last app
@@ -920,6 +1340,9 @@ function breakComplete (shouldPlaySound, windows) {
 }
 
 function finishMicrobreak (shouldPlaySound = true) {
+  if (microbreakWins.length === 0) {
+    return
+  }
   microbreakWins = breakComplete(shouldPlaySound, microbreakWins)
   log.info('Stretchly: finishing Mini Break')
   breakPlanner.nextBreak()
@@ -927,6 +1350,9 @@ function finishMicrobreak (shouldPlaySound = true) {
 }
 
 function finishBreak (shouldPlaySound = true) {
+  if (breakWins.length === 0) {
+    return
+  }
   breakWins = breakComplete(shouldPlaySound, breakWins)
   log.info('Stretchly: finishing Long Break')
   breakPlanner.nextBreak()
@@ -994,7 +1420,10 @@ function resetBreaks () {
 }
 
 function calculateBackgroundColor () {
-  return settings.get('mainColor') + Math.round(settings.get('opacity') * 255).toString(16)
+  return (
+    settings.get('mainColor') +
+    Math.round(settings.get('opacity') * 255).toString(16)
+  )
 }
 
 function loadIdeas () {
@@ -1006,17 +1435,23 @@ function loadIdeas () {
     log.info('Stretchly: loading custom break ideas from preferences file')
   } else {
     const t = i18next.getFixedT('en')
-    miniBreakIdeasData = Object.keys(t('miniBreakIdeas',
-      { returnObjects: true }))
-      .map((item) => {
-        return { data: i18next.t(`miniBreakIdeas.${item}.text`), enabled: true }
-      })
+    miniBreakIdeasData = Object.keys(
+      t('miniBreakIdeas', { returnObjects: true })
+    ).map((item) => {
+      return { data: i18next.t(`miniBreakIdeas.${item}.text`), enabled: true }
+    })
 
-    longBreakIdeasData = Object.keys(t('longBreakIdeas',
-      { returnObjects: true }))
-      .map((item) => {
-        return { data: [i18next.t(`longBreakIdeas.${item}.title`), i18next.t(`longBreakIdeas.${item}.text`)], enabled: true }
-      })
+    longBreakIdeasData = Object.keys(
+      t('longBreakIdeas', { returnObjects: true })
+    ).map((item) => {
+      return {
+        data: [
+          i18next.t(`longBreakIdeas.${item}.title`),
+          i18next.t(`longBreakIdeas.${item}.text`)
+        ],
+        enabled: true
+      }
+    })
     log.info('Stretchly: loading default break ideas')
   }
 
@@ -1056,9 +1491,10 @@ function createPreferencesWindow () {
     return
   }
   const modalPath = path.join('file://', __dirname, '/preferences.html')
-  const maxHeight = electron.screen
-    .getDisplayNearestPoint(electron.screen.getCursorScreenPoint())
-    .workAreaSize.height * 0.9
+  const maxHeight =
+    electron.screen.getDisplayNearestPoint(
+      electron.screen.getCursorScreenPoint()
+    ).workAreaSize.height * 0.9
   preferencesWin = new BrowserWindow({
     autoHideMenuBar: true,
     icon: windowIconPath(),
@@ -1093,20 +1529,23 @@ function getTrayMenu () {
   const trayMenu = []
 
   if (global.shared.isNewVersion) {
-    trayMenu.push({
-      label: i18next.t('main.downloadLatestVersion'),
-      click: function () {
-        shell.openExternal('https://hovancik.net/stretchly/downloads')
+    trayMenu.push(
+      {
+        label: i18next.t('main.downloadLatestVersion'),
+        click: function () {
+          shell.openExternal('https://hovancik.net/stretchly/downloads')
+        }
+      },
+      {
+        type: 'separator'
       }
-    }, {
-      type: 'separator'
-    })
+    )
   }
 
   const StatusMessages = require('./utils/statusMessages')
   const statusMessage = new StatusMessages({
-    breakPlanner: breakPlanner,
-    settings: settings
+    breakPlanner,
+    settings
   }).trayMessage
 
   if (statusMessage !== '') {
@@ -1123,24 +1562,34 @@ function getTrayMenu () {
     })
   }
 
-  if (!(breakPlanner.isPaused || breakPlanner.dndManager.isOnDnd || breakPlanner.appExclusionsManager.isSchedulerCleared)) {
+  if (
+    !(
+      breakPlanner.isPaused ||
+      breakPlanner.dndManager.isOnDnd ||
+      breakPlanner.appExclusionsManager.isSchedulerCleared
+    )
+  ) {
     let submenu = []
     if (settings.get('microbreak')) {
-      submenu = submenu.concat([{
-        label: i18next.t('main.toMicrobreak'),
-        click: () => skipToMicrobreak()
-      }])
+      submenu = submenu.concat([
+        {
+          label: i18next.t('main.toMicrobreak'),
+          click: () => skipToMicrobreak()
+        }
+      ])
     }
     if (settings.get('break')) {
-      submenu = submenu.concat([{
-        label: i18next.t('main.toBreak'),
-        click: () => skipToBreak()
-      }])
+      submenu = submenu.concat([
+        {
+          label: i18next.t('main.toBreak'),
+          click: () => skipToBreak()
+        }
+      ])
     }
     if (settings.get('break') || settings.get('microbreak')) {
       trayMenu.push({
         label: i18next.t('main.skipToTheNext'),
-        submenu: submenu
+        submenu
       })
     }
   }
@@ -1153,87 +1602,116 @@ function getTrayMenu () {
         updateTray()
       }
     })
-  } else if (breakPlanner.scheduler.reference === 'finishMicrobreak' && settings.get('microbreakStrictMode')) {
+  } else if (
+    breakPlanner.scheduler.reference === 'finishMicrobreak' &&
+    settings.get('microbreakStrictMode')
+  ) {
     // nothing
-  } else if (breakPlanner.scheduler.reference === 'finishBreak' && settings.get('breakStrictMode')) {
+  } else if (
+    breakPlanner.scheduler.reference === 'finishBreak' &&
+    settings.get('breakStrictMode')
+  ) {
     // nothing
-  } else if (!(breakPlanner.dndManager.isOnDnd || breakPlanner.appExclusionsManager.isSchedulerCleared)) {
-    trayMenu.push({
-      label: i18next.t('main.pause'),
-      submenu: [
-        {
-          label: i18next.t('utils.minutes', { count: 30 }),
-          click: function () {
-            pauseBreaks(1800 * 1000)
+  } else if (
+    !(
+      breakPlanner.dndManager.isOnDnd ||
+      breakPlanner.appExclusionsManager.isSchedulerCleared
+    )
+  ) {
+    trayMenu.push(
+      {
+        label: i18next.t('main.pause'),
+        submenu: [
+          {
+            label: i18next.t('utils.minutes', { count: 30 }),
+            click: function () {
+              pauseBreaks(1800 * 1000)
+            }
+          },
+          {
+            label: i18next.t('main.forHour'),
+            click: function () {
+              pauseBreaks(3600 * 1000)
+            }
+          },
+          {
+            label: i18next.t('main.for2Hours'),
+            click: function () {
+              pauseBreaks(3600 * 2 * 1000)
+            }
+          },
+          {
+            label: i18next.t('main.for5Hours'),
+            click: function () {
+              pauseBreaks(3600 * 5 * 1000)
+            }
+          },
+          {
+            label: i18next.t('main.untilMorning'),
+            click: function () {
+              const untilMorning = new UntilMorning(settings).msToSunrise()
+              pauseBreaks(untilMorning)
+            }
+          },
+          {
+            type: 'separator'
+          },
+          {
+            label: i18next.t('main.indefinitely'),
+            click: function () {
+              pauseBreaks(1)
+            }
           }
-        }, {
-          label: i18next.t('main.forHour'),
-          click: function () {
-            pauseBreaks(3600 * 1000)
-          }
-        }, {
-          label: i18next.t('main.for2Hours'),
-          click: function () {
-            pauseBreaks(3600 * 2 * 1000)
-          }
-        }, {
-          label: i18next.t('main.for5Hours'),
-          click: function () {
-            pauseBreaks(3600 * 5 * 1000)
-          }
-        }, {
-          label: i18next.t('main.untilMorning'),
-          click: function () {
-            const untilMorning = new UntilMorning(settings).msToSunrise()
-            pauseBreaks(untilMorning)
-          }
-        }, {
-          type: 'separator'
-        }, {
-          label: i18next.t('main.indefinitely'),
-          click: function () {
-            pauseBreaks(1)
-          }
-        }
-      ]
-    }, {
-      label: i18next.t('main.resetBreaks'),
-      click: resetBreaks
-    })
+        ]
+      },
+      {
+        label: i18next.t('main.resetBreaks'),
+        click: resetBreaks
+      }
+    )
   }
 
-  trayMenu.push({
-    type: 'separator'
-  }, {
-    label: i18next.t('main.preferences'),
-    click: function () {
-      createPreferencesWindow()
+  trayMenu.push(
+    {
+      type: 'separator'
+    },
+    {
+      label: i18next.t('main.preferences'),
+      click: function () {
+        createPreferencesWindow()
+      }
     }
-  })
+  )
 
   if (global.shared.isContributor) {
-    trayMenu.push({
-      label: i18next.t('main.contributorPreferences'),
-      click: function () {
-        createContributorSettingsWindow()
+    trayMenu.push(
+      {
+        label: i18next.t('main.contributorPreferences'),
+        click: function () {
+          createContributorSettingsWindow()
+        }
+      },
+      {
+        label: i18next.t('main.syncPreferences'),
+        click: function () {
+          createSyncPreferencesWindow()
+        }
       }
-    }, {
-      label: i18next.t('main.syncPreferences'),
-      click: function () {
-        createSyncPreferencesWindow()
-      }
-    })
+    )
   }
 
-  trayMenu.push({
-    type: 'separator'
-  }, {
-    label: i18next.t('main.quitStretchly'),
-    role: 'quit',
-    click: function () {
-      app.quit()
+  trayMenu.push(
+    {
+      type: 'separator'
+    },
+    {
+      label: i18next.t('main.quitStretchly'),
+      role: 'quit',
+      click: function () {
+        app.quit()
+      }
     }
-  })
+  )
 
   return Menu.buildFromTemplate(trayMenu)
 }
@@ -1242,8 +1720,8 @@ function updateToolTip () {
   const StatusMessages = require('./utils/statusMessages')
   let trayMessage = i18next.t('main.toolTipHeader')
   const message = new StatusMessages({
-    breakPlanner: breakPlanner,
-    settings: settings
+    breakPlanner,
+    settings
   }).trayMessage
   if (message !== '') {
     trayMessage += '\n\n' + message
@@ -1253,7 +1731,7 @@ function updateToolTip () {
 
 function showNotification (text) {
   processWin.webContents.send('showNotification', {
-    text: text,
+    text,
     silent: settings.get('silentNotifications')
   })
 }
@@ -1314,7 +1792,9 @@ ipcMain.on('restore-defaults', (event) => {
   dialog.showMessageBox(dialogOpts).then((returnValue) => {
     if (returnValue.response === 0) {
       log.info('Stretchly: restoring default settings')
-      settings.store = Object.assign(require('./utils/defaultSettings'), { isFirstRun: false })
+      settings.store = Object.assign(require('./utils/defaultSettings'), {
+        isFirstRun: false
+      })
       initialize(false)
       event.sender.send('renderSettings', settingsToSend())
     }
@@ -1328,7 +1808,7 @@ ipcMain.on('send-settings', function (event) {
 function settingsToSend () {
   const loginItemSettings = app.getLoginItemSettings()
   const openAtLogin = loginItemSettings.openAtLogin
-  return Object.assign({}, settings.store, { openAtLogin: openAtLogin })
+  return Object.assign({}, settings.store, { openAtLogin })
 }
 
 ipcMain.on('play-sound', function (event, sound) {
@@ -1343,8 +1823,16 @@ ipcMain.on('show-debug', function (event) {
   const doNotDisturb = breakPlanner.dndManager.isOnDnd
   const settingsFile = settings.path
   const logsFile = log.transports.file.getFile().path
-  event.sender.send('debugInfo', reference, timeleft,
-    breaknumber, postponesnumber, settingsFile, logsFile, doNotDisturb)
+  event.sender.send(
+    'debugInfo',
+    reference,
+    timeleft,
+    breaknumber,
+    postponesnumber,
+    settingsFile,
+    logsFile,
+    doNotDisturb
+  )
 })
 
 ipcMain.on('open-preferences', function (event) {
@@ -1355,7 +1843,11 @@ ipcMain.on('set-contributor', function (event) {
   const dir = app.getPath('userData')
   const contributorStampFile = `${dir}/stamp`
   const { DateTime } = require('luxon')
-  require('fs').writeFile(contributorStampFile, DateTime.now().toString(), () => {})
+  require('fs').writeFile(
+    contributorStampFile,
+    DateTime.now().toString(),
+    () => {}
+  )
   global.shared.isContributor = true
   log.info('Stretchly: Logged in. Thanks for your contributions!')
   if (preferencesWin) {

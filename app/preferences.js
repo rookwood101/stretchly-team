@@ -150,6 +150,19 @@ window.onload = (e) => {
   })
 
   ipcRenderer.on('renderSettings', (event, settings) => {
+    document.querySelector('#teamServerUrl').value = settings.teamServerUrl
+    document.querySelector('#teamName').value = settings.teamName
+    document.querySelector('#teamPassword').value = settings.teamPassword
+    if (!eventsAttached) {
+      document.querySelector('#teamServerUrl').onchange = (event) => {
+        ipcRenderer.send('save-setting', 'teamServerUrl', event.target.value)
+      }
+      document.querySelector('button#setTeam').onclick = () => {
+        ipcRenderer.send('save-setting', 'teamName', document.querySelector('#teamName').value)
+        ipcRenderer.send('save-setting', 'teamPassword', document.querySelector('#teamPassword').value)
+      }
+    }
+
     document.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
       const isNegative = checkbox.classList.contains('negative')
       checkbox.checked = isNegative ? !settings[checkbox.value] : settings[checkbox.value]

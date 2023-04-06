@@ -60,5 +60,9 @@ module.exports = {
   resumeBreaksShortcut: '',
   screen: 'primary',
   timeToBreakInTray: false,
-  currentTimeInBreaks: false
+  currentTimeInBreaks: false,
+  teamServerUrl: 'example.com:3000',
+  enableStretchlyTeam: true,
+  teamName: 'Default',
+  teamPassword: 'default'
 }

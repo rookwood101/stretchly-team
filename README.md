@@ -435,6 +435,10 @@ You can help to translate Stretchly on [Weblate](https://hosted.weblate.org/enga
 - João Barreiros, [@unstablectrl](https://github.com/unstablectrl)
 - Vova Babii, [@JARVIS-VOVA](https://github.com/JARVIS-VOVA)
 - Ben Hammond, [@benhamondmusic](https://github.com/benhammondmusic)
+While working at CMR Surgical and creators of Stretchly Team mode:
+- Alex Sadler, [@rookwood101](https://github.com/rookwood101)
+- Louis Holdsworth, [@LouisH98](https://github.com/LouisH98)
+- Roger Duthie, [@rjaduthie](https://github.com/rjaduthie)
 
 Also see Github's list of [contributors](https://github.com/hovancik/stretchly/graphs/contributors).
 

@@ -8,19 +8,19 @@ const formatTimeRemaining = function (milliseconds, i18next = require('i18next')
   const hours = Math.ceil(minutes / 60.0)
 
   if (seconds < 60) {
-    return i18next.t('utils.secondsRemaining', { seconds: seconds })
+    return i18next.t('utils.secondsRemaining', { seconds })
   }
 
   if (seconds >= 60 && minutes < 60) {
     if (seconds === 60) {
       return i18next.t('utils.aboutMinutesRemaining', { minutes: 2 })
     }
-    return i18next.t('utils.aboutMinutesRemaining', { minutes: minutes })
+    return i18next.t('utils.aboutMinutesRemaining', { minutes })
   }
 
   if (minutes >= 60) {
     if (minutes % 60 === 0) {
-      return i18next.t('utils.aboutHoursRemaining', { hours: hours })
+      return i18next.t('utils.aboutHoursRemaining', { hours })
     }
     return i18next.t('utils.aboutHoursMinutesRemaining',
       { minutes: minutes - (hours - 1) * 60, hours: hours - 1 })
@@ -34,19 +34,19 @@ const formatTimeIn = function (milliseconds, i18next = require('i18next')) {
   const hours = Math.ceil(minutes / 60.0)
 
   if (seconds < 60) {
-    return i18next.t('utils.inSeconds', { seconds: seconds })
+    return i18next.t('utils.inSeconds', { seconds })
   }
 
   if (seconds >= 60 && minutes < 60) {
     if (seconds === 60) {
       return i18next.t('utils.inAboutMinutes', { minutes: 2 })
     }
-    return i18next.t('utils.inAboutMinutes', { minutes: minutes })
+    return i18next.t('utils.inAboutMinutes', { minutes })
   }
 
   if (minutes >= 60) {
     if (minutes % 60 === 0) {
-      return i18next.t('utils.inAboutHours', { hours: hours })
+      return i18next.t('utils.inAboutHours', { hours })
     } else {
       return i18next.t('utils.inAboutHoursMinutes',
         { minutes: minutes - (hours - 1) * 60, hours: hours - 1 })

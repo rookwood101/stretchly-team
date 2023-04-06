@@ -1,0 +1,14 @@
+{
+  "name": "stretchly-team-server",
+  "description": "Server for sychronising multiple instances of Stretchly-team",
+  "main": "main.js",
+  "scripts": {
+    "start": "node main.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "express": "^4.18.1",
+    "mustache": "^4.2.0",
+    "ws": "^8.8.0"
+  }
+}

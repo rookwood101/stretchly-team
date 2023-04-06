@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>{{name}} | Stretchly Team</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="description" content="" />
+</head>
+<body>
+  <a href="/">Home</a>
+  <h1>{{name}} - Stretchly Team</h1>
+  <h2>👫 Break buddies currently online 👫</h2>
+  <ul>
+    {{#breakBuddies}}
+    <li>{{.}}</li>
+    {{/breakBuddies}}
+    {{^breakBuddies}}🪦 No break buddies online 🪦{{/breakBuddies}}
+  </ul>
+  <h2>⚙️ Settings ⚙️</h2>
+  <!--
+    autocomplete=off ensures that on page reload, the values come from the server
+    and browser doesn't cache previous values
+  -->
+  <form method="post" autocomplete="off">
+    <div>
+      <label for="interval">Break interval / ms: </label>
+      <input type="number" name="interval" id="interval" value="{{interval}}" required>
+    </div>
+    <div>
+      <label for="duration">Break duration / ms: </label>
+      <input type="number" name="duration" id="duration" value="{{duration}}" required>
+    </div>
+    <input type="submit" value="Save">
+  </form>
+  <h2>⏰ Time until next break ⏰</h2>
+  {{timeUntilNextBreak}} ms, as of last page refresh.
+</body>
+</html>

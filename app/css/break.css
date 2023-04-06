@@ -12,6 +12,10 @@
   justify-items: center;
 }
 
+body {
+  user-select: none;
+}
+
 .breaks > * {
   grid-column: 2 / span 1;
 }
@@ -28,6 +32,11 @@
   font-size: 30px;
   letter-spacing: 0.44px;
   line-height: 46px;
+}
+
+.microbreak-advice {
+  margin-top: 150px;
+  font-size: 75%;
 }
 
 .breaks > :nth-child(1) >  .break-idea {
@@ -111,4 +120,41 @@ body[dir=rtl] .breaks > :nth-child(2) > a img {
   bottom: 12px;
   position: absolute;
   right: 12px;
+}
+
+.poke {
+  font-size: 2.2em;
+  transition: margin-left 0.1s;
+  width: 0;
+}
+
+#buddy-list {
+  list-style: none;
+  list-style-type: none;
+}
+
+.buddy-row {
+  margin: 0 auto;
+  justify-content: center;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+  height: 30px;
+}
+
+.buddy-row:active .poke {
+  margin-left: 0 !important;
+}
+
+.buddy-row .poke {
+  visibility: hidden;
+}
+
+.buddy-row:hover .poke{
+  margin-left: 10px;
+  transition: margin-left 0.1s;
+  visibility: visible;
 }
